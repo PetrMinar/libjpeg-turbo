@@ -615,6 +615,52 @@ ycck_cmyk_convert_inv(j_decompress_ptr cinfo, JSAMPIMAGE input_buf,
 }
 
 /*
+ * It is needed for correct decoding of "testimage-cmyk-rgb.jpg"
+ */
+
+METHODDEF(void)
+cmyk_rgb_convert(j_decompress_ptr cinfo, JSAMPIMAGE input_buf,
+                 JDIMENSION input_row, JSAMPARRAY output_buf, int num_rows)
+{
+  register JSAMPROW outptr;
+  register JSAMPROW inptr0, inptr1, inptr2, inptr3;
+  register JDIMENSION col;
+  register int c, m, y, k, r, g, b;
+  JDIMENSION num_cols = cinfo->output_width;
+
+  while(--num_rows >= 0) {
+    inptr0 = input_buf[0][input_row];
+    inptr1 = input_buf[1][input_row];
+    inptr2 = input_buf[2][input_row];
+    inptr3 = input_buf[3][input_row];
+    input_row++;
+    outptr = *output_buf++;
+    for(col = 0; col < num_cols; col++) {
+      c = inptr0[col];
+      m = inptr1[col];
+      y = inptr2[col];
+      k = inptr3[col];
+
+      c = 255 - c;
+      m = 255 - m;
+      y = 255 - y;
+      k = 255 - k;
+
+      c += k; m += k; y += k;
+      r = 255 - min(255, c);
+      g = 255 - min(255, m);
+      b = 255 - min(255, y);
+
+      outptr[rgb_blue[cinfo->out_color_space]] = b;
+      outptr[rgb_green[cinfo->out_color_space]] = g;
+      outptr[rgb_red[cinfo->out_color_space]] = r;
+      outptr += rgb_pixelsize[cinfo->out_color_space];
+    }
+  }
+}
+
+
+/*
  * RGB565 conversion
  */
 
@@ -868,7 +914,9 @@ jinit_color_deconverter(j_decompress_ptr cinfo)
         cconvert->pub.color_convert = null_convert;
       else
         cconvert->pub.color_convert = rgb_rgb_convert;
-    } else
+    } else if(cinfo->jpeg_color_space == JCS_CMYK)
+        cconvert->pub.color_convert = cmyk_rgb_convert;
+      else
       ERREXIT(cinfo, JERR_CONVERSION_NOTIMPL);
     break;
 
