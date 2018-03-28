@@ -568,6 +568,53 @@ ycck_cmyk_convert(j_decompress_ptr cinfo, JSAMPIMAGE input_buf,
 
 
 /*
+ * Almost the same as ycck_cmyk_convert.
+ * The only difference is that output values are inverted.
+ * It is needed for correct decoding of "testimage-ycck-cmyk-photoshop.jpg"
+ */
+
+METHODDEF(void)
+ycck_cmyk_convert_inv(j_decompress_ptr cinfo, JSAMPIMAGE input_buf,
+                      JDIMENSION input_row, JSAMPARRAY output_buf, int num_rows)
+{
+  my_cconvert_ptr cconvert = (my_cconvert_ptr)cinfo->cconvert;
+  register int y, cb, cr;
+  register JSAMPROW outptr;
+  register JSAMPROW inptr0, inptr1, inptr2, inptr3;
+  register JDIMENSION col;
+  JDIMENSION num_cols = cinfo->output_width;
+  register JSAMPLE *range_limit = cinfo->sample_range_limit;
+  register int *Crrtab = cconvert->Cr_r_tab;
+  register int *Cbbtab = cconvert->Cb_b_tab;
+  register INT32 *Crgtab = cconvert->Cr_g_tab;
+  register INT32 *Cbgtab = cconvert->Cb_g_tab;
+  SHIFT_TEMPS
+
+  while(--num_rows >= 0) {
+    inptr0 = input_buf[0][input_row];
+    inptr1 = input_buf[1][input_row];
+    inptr2 = input_buf[2][input_row];
+    inptr3 = input_buf[3][input_row];
+    input_row++;
+    outptr = *output_buf++;
+    for(col = 0; col < num_cols; col++) {
+      y = GETJSAMPLE(inptr0[col]);
+      cb = GETJSAMPLE(inptr1[col]);
+      cr = GETJSAMPLE(inptr2[col]);
+
+      outptr[0] = range_limit[(y + Crrtab[cr])];   /* red */
+      outptr[1] = range_limit[(y +                 /* green */
+                              ((int)RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr],
+                                                 SCALEBITS)))];
+      outptr[2] = range_limit[(y + Cbbtab[cb])];   /* blue */
+      /* K is only inverted */
+      outptr[3] = MAXJSAMPLE - inptr3[col]; /* don't need GETJSAMPLE here */
+      outptr += 4;
+    }
+  }
+}
+
+/*
  * RGB565 conversion
  */
 
@@ -858,7 +905,10 @@ jinit_color_deconverter(j_decompress_ptr cinfo)
   case JCS_CMYK:
     cinfo->out_color_components = 4;
     if (cinfo->jpeg_color_space == JCS_YCCK) {
-      cconvert->pub.color_convert = ycck_cmyk_convert;
+      if(cinfo->saw_Adobe_marker && cinfo->Adobe_transform == 2)
+        cconvert->pub.color_convert = ycck_cmyk_convert_inv;
+      else
+        cconvert->pub.color_convert = ycck_cmyk_convert;
       build_ycc_rgb_table(cinfo);
     } else if (cinfo->jpeg_color_space == JCS_CMYK) {
       cconvert->pub.color_convert = null_convert;
